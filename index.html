@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Indoor Air Quality</title>
+<meta name="description" content="Live indoor air quality: AQI, PM2.5, PM10, CO2, temperature and humidity.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #E9F0F4;
+    --bg2: #F6F9FB;
+    --panel: #FFFFFF;
+    --ink: #13202B;
+    --ink2: #3C4B57;
+    --muted: #6A7884;
+    --line: #DCE5EB;
+    --grid: #EBF0F3;
+    --accent: #2B6CB0;
+    --live: #15803D;
+    --down: #C2410C;
+    --shadow: 0 1px 2px rgba(19,32,43,.04), 0 8px 24px rgba(19,32,43,.06);
+    /* CPCB AQI category colours */
+    --c0: #00A651; --c1: #8CC63F; --c2: #F4C20D; --c3: #F7941D; --c4: #E53935; --c5: #A50E0E;
+    --cat: #9AA8B4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0D141A; --bg2: #111A21; --panel: #16212A; --ink: #EAF1F6; --ink2: #C3CFD8; --muted: #8C9BA7;
+      --line: #24313C; --grid: #1E2A34; --accent: #6FAEF0; --live: #4ADE80; --down: #FB923C;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; color: var(--ink);
+    background: radial-gradient(1200px 500px at 15% -10%, var(--bg2), transparent 70%), var(--bg);
+    font-family: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px; line-height: 1.5; min-height: 100vh;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 18px 40px; }
+
+  /* ---------- top bar ---------- */
+  .top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 20px; margin-bottom: 20px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 42px; height: 42px; border-radius: 12px; background: var(--panel); box-shadow: var(--shadow);
+          display: grid; place-items: center; color: var(--accent); }
+  .brand h1 { font-family: "Sora", sans-serif; font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .brand p { margin: 0; color: var(--muted); font-size: 14px; }
+  .live { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px;
+          background: var(--panel); box-shadow: var(--shadow); font-weight: 600; font-size: 14px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); position: relative; }
+  .pill.on { color: var(--live); } .pill.off { color: var(--down); }
+  .pill.on .dot { background: var(--live); }
+  .pill.on .dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid var(--live);
+                         opacity: 0; animation: pulse 2s ease-out infinite; }
+  .pill.off .dot { background: var(--down); }
+  .stamp { color: var(--muted); font-size: 14px; }
+  @keyframes pulse { 0% { transform: scale(.6); opacity: .8 } 100% { transform: scale(1.6); opacity: 0 } }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative; overflow: hidden; border-radius: 24px; box-shadow: var(--shadow);
+    background:
+      radial-gradient(600px 300px at 0% 0%, color-mix(in srgb, var(--cat) 30%, transparent), transparent 70%),
+      linear-gradient(160deg, color-mix(in srgb, var(--cat) 12%, var(--panel)), var(--panel) 65%);
+    padding: 28px; display: grid; grid-template-columns: 320px 1fr; gap: 12px 40px; align-items: center;
+  }
+  .gauge { position: relative; width: 300px; justify-self: center; }
+  .gauge svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .gauge .center { position: absolute; left: 0; right: 0; top: 46%; text-align: center; }
+  .gauge .aqi { font-family: "Sora", sans-serif; font-size: 64px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+  .gauge .unit { font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .04em; margin-top: 4px; }
+  .gauge .ends { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); padding: 0 6px; margin-top: -4px; }
+  #marker { transition: transform .9s cubic-bezier(.2,.8,.2,1); }
+
+  .verdict .chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px;
+                   font-weight: 700; font-size: 14px; background: var(--cat); color: #fff; }
+  .verdict h2 { font-family: "Sora", sans-serif; font-size: 34px; font-weight: 600; margin: 12px 0 6px; letter-spacing: -0.02em; line-height: 1.15; }
+  .verdict .advice { margin: 0; color: var(--ink2); font-size: 17px; max-width: 52ch; }
+  .action { display: flex; gap: 12px; align-items: flex-start; margin-top: 18px; padding: 14px 16px; border-radius: 14px;
+            background: color-mix(in srgb, var(--panel) 75%, transparent); border: 1px solid var(--line); max-width: 560px; }
+  .action svg { flex: none; margin-top: 2px; color: var(--accent); }
+  .action b { display: block; font-size: 14px; }
+  .action span { font-size: 14px; color: var(--ink2); }
+  .subs { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 16px; font-size: 14px; color: var(--muted); }
+  .subs b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- reading cards ---------- */
+  .cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin: 20px 0; }
+  .card {
+    text-align: left; font: inherit; color: inherit; cursor: pointer;
+    background: var(--panel); border: 1.5px solid transparent; border-radius: 18px; padding: 16px 16px 10px;
+    box-shadow: var(--shadow); transition: border-color .2s, transform .2s;
+  }
+  .card:hover { transform: translateY(-2px); }
+  .card[aria-pressed="true"] { border-color: var(--accent); }
+  .card:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .card .head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; font-weight: 600; }
+  .card .head svg { color: var(--ink2); }
+  .card .val { font-family: "Sora", sans-serif; font-size: 30px; font-weight: 600; margin-top: 8px; letter-spacing: -0.02em; line-height: 1.1; }
+  .card .val small { font-family: "Figtree", sans-serif; font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+  .card .tag { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ink2); min-height: 20px; }
+  .card .tag i { width: 9px; height: 9px; border-radius: 50%; background: var(--d, var(--muted)); }
+  .spark { height: 38px; margin-top: 6px; position: relative; }
+
+  /* ---------- chart ---------- */
+  .panel { background: var(--panel); border-radius: 24px; padding: 22px 22px 16px; box-shadow: var(--shadow); }
+  .panel-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 6px 16px; margin-bottom: 10px; }
+  .panel h3 { font-family: "Sora", sans-serif; font-size: 19px; font-weight: 600; margin: 0; }
+  .panel .hint { color: var(--muted); font-size: 14px; }
+  .chartbox { position: relative; height: 320px; }
+  .empty[hidden] { display: none; }
+  .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .bands { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .bands span { display: inline-flex; align-items: center; gap: 6px; }
+  .bands i { width: 14px; height: 8px; border-radius: 2px; display: inline-block; }
+
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 20px; margin-top: 22px; font-size: 13px; color: var(--muted); }
+  footer a { color: var(--muted); }
+
+  @media (max-width: 900px) {
+    .hero { grid-template-columns: 1fr; }
+    .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cards .card:last-child { grid-column: span 2; }
+  }
+  @media (max-width: 420px) {
+    .hero { padding: 20px; }
+    .gauge { width: 260px; }
+    .gauge .aqi { font-size: 54px; }
+    .verdict h2 { font-size: 28px; }
+    .card .val { font-size: 26px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- top bar -->
+  <div class="top">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 12h16a3 3 0 1 1-3 3"/><path d="M3 16h7"/></svg>
+      </div>
+      <div>
+        <h1>Indoor Air Quality</h1>
+        <p id="place"></p>
+      </div>
+    </div>
+    <div class="live">
+      <span class="pill" id="status"><span class="dot"></span><span id="statusText">Connecting…</span></span>
+      <span class="stamp" id="stamp"></span>
+    </div>
+  </div>
+
+  <!-- hero -->
+  <section class="hero" id="hero" aria-labelledby="catTitle">
+    <div class="gauge">
+      <svg viewBox="0 0 300 170" role="img" id="gaugeSvg" aria-label="AQI gauge">
+        <g id="arcs"></g>
+        <g id="marker"><circle r="12" fill="var(--panel)" stroke="var(--cat)" stroke-width="6"/></g>
+      </svg>
+      <div class="center">
+        <div class="aqi" id="aqiNum">–</div>
+        <div class="unit">AQI</div>
+      </div>
+      <div class="ends"><span>0</span><span>500</span></div>
+    </div>
+
+    <div class="verdict">
+      <span class="chip" id="chip">Air quality</span>
+      <h2 id="catTitle">Loading the latest readings…</h2>
+      <p class="advice" id="advice"></p>
+      <div class="action">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16h.01"/></svg>
+        <div><b>What you can do</b><span id="action">–</span></div>
+      </div>
+      <div class="subs" id="subs"></div>
+    </div>
+  </section>
+
+  <!-- reading cards (also select the chart) -->
+  <section class="cards" id="cards" aria-label="Latest readings"></section>
+
+  <!-- trend chart -->
+  <section class="panel" aria-labelledby="chartTitle">
+    <div class="panel-head">
+      <h3 id="chartTitle">Last 24 hours</h3>
+      <span class="hint">Tap a reading above to switch the chart</span>
+    </div>
+    <div class="chartbox">
+      <canvas id="chart" aria-label="24-hour trend"></canvas>
+      <div class="empty" id="empty" hidden></div>
+    </div>
+    <div class="bands" id="bands"></div>
+  </section>
+
+  <footer>
+    <span>AQI uses India's CPCB method (PM2.5 and PM10, last-hour average). Values are calibrated against an Aeroqual S500 reference monitor.</span>
+    <span id="src"></span>
+  </footer>
+</div>
+
+<script>
+// ===================== SETTINGS =====================
+const CHANNEL_ID   = 3521024;             // Node
+const READ_API_KEY = "5P2ZC8LSDQ072HEL";
+const PLACE_NAME   = "Quitelands Villa no 8";            // change to the room / location name
+const OFFLINE_MIN  = 5;                   // offline if no data for this many minutes
+const REFRESH_MS   = 60 * 1000;
+
+// ThingSpeak fields posted by the firmware (calibrated values)
+const F = { temp: "field1", hum: "field2", pm25: "field3", pm10: "field4", co2: "field5" };
+
+// ===================== CPCB AQI =====================
+const CATS = [
+  { name: "Good",         c: "--c0", ink: "#fff",    hi: 50,
+    advice: "The air is clean. Minimal impact on health.",
+    action: "A great time to open the windows and enjoy the fresh air." },
+  { name: "Satisfactory", c: "--c1", ink: "#13202B", hi: 100,
+    advice: "Air quality is acceptable. Sensitive people may feel minor breathing discomfort.",
+    action: "No special steps needed. Keep the room ventilated." },
+  { name: "Moderate",     c: "--c2", ink: "#13202B", hi: 200,
+    advice: "People with asthma, lung or heart disease may feel breathing discomfort.",
+    action: "Look for the source (dust, smoke, cooking) and run an air purifier if you have one." },
+  { name: "Poor",         c: "--c3", ink: "#13202B", hi: 300,
+    advice: "Most people may feel breathing discomfort on long exposure.",
+    action: "Run an air purifier, avoid smoke or incense, and limit heavy activity indoors." },
+  { name: "Very Poor",    c: "--c4", ink: "#fff",    hi: 400,
+    advice: "Long exposure can cause respiratory illness.",
+    action: "Run an air purifier on high and reduce time spent in this room." },
+  { name: "Severe",       c: "--c5", ink: "#fff",    hi: 500,
+    advice: "Affects healthy people and seriously impacts those with existing disease.",
+    action: "Avoid staying here. Use an air purifier and a well-fitting N95 mask." },
+];
+const BP = {   // [conc low, conc high, AQI low, AQI high]
+  pm25: [[0,30,0,50],[30,60,51,100],[60,90,101,200],[90,120,201,300],[120,250,301,400],[250,380,401,500]],
+  pm10: [[0,50,0,50],[50,100,51,100],[100,250,101,200],[250,350,201,300],[350,430,301,400],[430,510,401,500]],
+};
+function subIndex(c, t) {
+  if (c == null || !isFinite(c) || c < 0) return null;
+  for (const [cl, ch, il, ih] of t) if (c <= ch) return il + (ih - il) * (c - cl) / (ch - cl);
+  return 500;
+}
+const catIdx = aqi => { const i = CATS.findIndex(c => aqi <= c.hi); return i < 0 ? CATS.length - 1 : i; };
+
+// CO2 levels (Prana Air datasheet)
+const CO2_LV = [
+  { hi: 600, name: "Good", c: "--c0" }, { hi: 800, name: "Moderate", c: "--c2" },
+  { hi: 1000, name: "Poor", c: "--c3" }, { hi: 1200, name: "Unhealthy", c: "--c4" },
+  { hi: 1500, name: "Severe", c: "--c5" }, { hi: Infinity, name: "Hazardous", c: "--c5" },
+];
+
+// ===================== METRICS / CARDS =====================
+const ICON = {
+  pm:   '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="6" cy="7" r="2"/><circle cx="14" cy="5" r="1.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="9" cy="14" r="2.2"/><circle cx="14" cy="19" r="1.6"/><circle cx="5" cy="19" r="1.2"/></svg>',
+  co2:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/></svg>',
+  temp: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 14.5V5a2 2 0 1 1 4 0v9.5a4 4 0 1 1-4 0z"/></svg>',
+  hum:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/></svg>',
+};
+const METRICS = [
+  { k: "pm25", name: "PM2.5",       unit: "µg/m³", dp: 1, icon: ICON.pm,   bands: "pm25" },
+  { k: "pm10", name: "PM10",        unit: "µg/m³", dp: 1, icon: ICON.pm,   bands: "pm10" },
+  { k: "co2",  name: "CO₂",         unit: "ppm",   dp: 0, icon: ICON.co2,  bands: "co2"  },
+  { k: "temp", name: "Temperature", unit: "°C",    dp: 1, icon: ICON.temp },
+  { k: "hum",  name: "Humidity",    unit: "%",     dp: 0, icon: ICON.hum  },
+];
+// Shaded bands on the main chart: [low, high, colour var, name]
+const BANDS = {
+  pm25: [[0,30,"--c0","Good"],[30,60,"--c1","Satisfactory"],[60,90,"--c2","Moderate"],[90,120,"--c3","Poor"],[120,250,"--c4","Very Poor"],[250,1e9,"--c5","Severe"]],
+  pm10: [[0,50,"--c0","Good"],[50,100,"--c1","Satisfactory"],[100,250,"--c2","Moderate"],[250,350,"--c3","Poor"],[350,430,"--c4","Very Poor"],[430,1e9,"--c5","Severe"]],
+  co2:  [[0,600,"--c0","Good"],[600,800,"--c2","Moderate"],[800,1000,"--c3","Poor"],[1000,1200,"--c4","Unhealthy"],[1200,1e9,"--c5","Severe"]],
+};
+
+let sel = 0, feeds = [], chart, sparks = {};
+
+// ===================== HELPERS =====================
+const cv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const num = v => { const x = parseFloat(v); return isFinite(x) ? x : null; };
+const hm = ms => new Date(ms).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
+const full = ms => new Date(ms).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+function ago(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "just now"; if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60); return h < 48 ? `${h} h ago` : `${Math.round(h / 24)} days ago`;
+}
+function hexA(hex, a) {   // "#rrggbb" + alpha -> rgba()
+  const h = hex.replace("#", ""); const n = parseInt(h.length === 3 ? h.replace(/./g, "$&$&") : h, 16);
+  return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
+}
+
+// ===================== GAUGE =====================
+const G = { cx: 150, cy: 150, r: 118, w: 20, gap: 2.2 };
+const pt = a => [G.cx + G.r * Math.cos(a * Math.PI / 180), G.cy - G.r * Math.sin(a * Math.PI / 180)];
+function buildGauge() {
+  const g = document.getElementById("arcs");
+  const step = 180 / CATS.length;
+  CATS.forEach((c, i) => {
+    const a1 = 180 - i * step - (i ? G.gap / 2 : 0);
+    const a2 = 180 - (i + 1) * step + (i < CATS.length - 1 ? G.gap / 2 : 0);
+    const [x1, y1] = pt(a1), [x2, y2] = pt(a2);
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", `M${x1.toFixed(2)} ${y1.toFixed(2)} A${G.r} ${G.r} 0 0 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`);
+    p.setAttribute("fill", "none"); p.setAttribute("stroke", `var(${c.c})`);
+    p.setAttribute("stroke-width", G.w);
+    p.setAttribute("stroke-linecap", i === 0 || i === CATS.length - 1 ? "round" : "butt");
+    g.appendChild(p);
+  });
+  setMarker(0, 0);
+}
+function setMarker(i, f) {   // segment index + fraction inside it
+  const [x, y] = pt(180 - (i + f) * (180 / CATS.length));
+  document.getElementById("marker").style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+}
+
+// ===================== CARDS =====================
+function buildCards() {
+  const wrap = document.getElementById("cards");
+  METRICS.forEach((m, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "card"; b.id = "card-" + m.k;
+    b.setAttribute("aria-pressed", i === sel ? "true" : "false");
+    b.innerHTML = `<div class="head">${m.icon}<span>${m.name}</span></div>
+      <div class="val" data-v>–</div>
+      <div class="tag" data-t></div>
+      <div class="spark"><canvas data-s aria-hidden="true"></canvas></div>`;
+    b.onclick = () => {
+      sel = i;
+      document.querySelectorAll(".card").forEach((c, j) => c.setAttribute("aria-pressed", j === i ? "true" : "false"));
+      drawChart();
+    };
+    wrap.appendChild(b);
+    sparks[m.k] = new Chart(b.querySelector("[data-s]"), {
+      type: "line",
+      data: { datasets: [{ data: [], borderColor: cv("--muted"), borderWidth: 1.5, pointRadius: 0, tension: 0.35, fill: false }] },
+      options: { animation: false, maintainAspectRatio: false, parsing: false, events: [],
+        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        scales: { x: { type: "linear", display: false }, y: { display: false } } }
+    });
+  });
+}
+
+// ===================== MAIN CHART =====================
+const bandPlugin = {
+  id: "bands",
+  beforeDatasetsDraw(c) {
+    const m = METRICS[sel]; if (!m.bands) return;
+    const { ctx, chartArea: a, scales: { y } } = c;
+    ctx.save();
+    for (const [lo, hi, col] of BANDS[m.bands]) {
+      const yTop = Math.max(a.top, y.getPixelForValue(Math.min(hi, y.max)));
+      const yBot = Math.min(a.bottom, y.getPixelForValue(Math.max(lo, y.min)));
+      if (yBot <= yTop) continue;
+      ctx.fillStyle = hexA(cv(col), 0.10);
+      ctx.fillRect(a.left, yTop, a.right - a.left, yBot - yTop);
+    }
+    ctx.restore();
+  }
+};
+function buildChart() {
+  chart = new Chart(document.getElementById("chart"), {
+    type: "line",
+    data: { datasets: [{
+      data: [], borderWidth: 2.5, pointRadius: 0, pointHoverRadius: 5, tension: 0.3, fill: true,
+      borderColor: () => cv("--accent"),
+      pointHoverBackgroundColor: () => cv("--accent"),
+      backgroundColor: ctx => {
+        const a = ctx.chart.chartArea; if (!a) return "transparent";
+        const g = ctx.chart.ctx.createLinearGradient(0, a.top, 0, a.bottom);
+        g.addColorStop(0, hexA(cv("--accent"), 0.28)); g.addColorStop(1, hexA(cv("--accent"), 0.02));
+        return g;
+      }
+    }] },
+    options: {
+      animation: false, maintainAspectRatio: false, parsing: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: cv("--ink"), titleColor: cv("--panel"), bodyColor: cv("--panel"),
+          padding: 10, cornerRadius: 10, displayColors: false,
+          titleFont: { family: "Figtree", weight: "600" }, bodyFont: { family: "Figtree", size: 14 },
+          callbacks: {
+            title: i => full(i[0].parsed.x),
+            label: i => { const m = METRICS[sel]; return `${m.name}: ${i.parsed.y.toFixed(m.dp)} ${m.unit}`; }
+          }
+        }
+      },
+      scales: {
+        x: { type: "linear", grid: { display: false }, border: { display: false },
+             ticks: { callback: v => hm(v), maxTicksLimit: 7, color: cv("--muted"), font: { family: "Figtree" } } },
+        y: { grid: { color: cv("--grid") }, border: { display: false },
+             ticks: { maxTicksLimit: 6, color: cv("--muted"), font: { family: "Figtree" } } }
+      }
+    },
+    plugins: [bandPlugin]
+  });
+}
+function drawChart() {
+  const m = METRICS[sel];
+  const pts = feeds.filter(r => r[m.k] != null).map(r => ({ x: r.t, y: r[m.k] }));
+  chart.data.datasets[0].data = pts;
+  const max = pts.length ? Math.max(...pts.map(p => p.y)) : 0;
+  const y = chart.options.scales.y;
+  y.beginAtZero = m.k === "pm25" || m.k === "pm10";
+  y.suggestedMin = m.k === "co2" ? 350 : undefined;
+  y.suggestedMax = m.bands ? Math.max(max * 1.15, BANDS[m.bands][1][1]) : undefined;
+  chart.options.scales.x.min = pts.length ? pts[0].x : undefined;
+  chart.options.scales.x.max = pts.length ? pts[pts.length - 1].x : undefined;
+  chart.update("none");
+  document.getElementById("chartTitle").textContent = `${m.name} (${m.unit}), last 24 hours`;
+  const e = document.getElementById("empty");
+  e.hidden = pts.length > 0; e.textContent = `No ${m.name} data in the last 24 hours.`;
+  document.getElementById("bands").innerHTML = m.bands
+    ? BANDS[m.bands].map(([lo, hi, c, n]) => `<span><i style="background:var(${c})"></i>${n}</span>`).join("")
+    : "";
+}
+
+// ===================== DATA =====================
+async function fetchData() {
+  const base = `https://api.thingspeak.com/channels/${CHANNEL_ID}`;
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`${base}/feeds.json?api_key=${READ_API_KEY}&minutes=1440&average=10`, { cache: "no-store" }),
+      fetch(`${base}/feeds/last.json?api_key=${READ_API_KEY}`, { cache: "no-store" })
+    ]);
+    const j = await r1.json(), last = await r2.json();
+    feeds = (j.feeds || []).map(r => ({
+      t: Date.parse(r.created_at),
+      temp: num(r[F.temp]), hum: num(r[F.hum]), pm25: num(r[F.pm25]), pm10: num(r[F.pm10]), co2: num(r[F.co2])
+    })).filter(r => isFinite(r.t));
+    render(last && last !== -1 ? last : null);
+  } catch (e) {
+    setStatus("off", "Can't reach data");
+    document.getElementById("stamp").textContent = "Retrying every minute";
+  }
+}
+function setStatus(cls, text) {
+  document.getElementById("status").className = "pill " + cls;
+  document.getElementById("statusText").textContent = text;
+}
+function recentMean(k, minutes) {
+  const cut = Date.now() - minutes * 60000;
+  const v = feeds.filter(r => r.t >= cut && r[k] != null).map(r => r[k]);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
+function render(last) {
+  // ----- status -----
+  const lastT = last ? Date.parse(last.created_at) : (feeds.length ? feeds[feeds.length - 1].t : null);
+  if (!lastT) {
+    setStatus("off", "No data yet");
+  } else {
+    const age = Date.now() - lastT, online = age <= OFFLINE_MIN * 60000;
+    setStatus(online ? "on" : "off", online ? "Live" : "Sensor offline");
+    document.getElementById("stamp").textContent = `Updated ${ago(age)} · ${full(lastT)}`;
+  }
+
+  const lv = k => last ? num(last[F[k]]) : null;
+  const L = { temp: lv("temp"), hum: lv("hum"), pm25: lv("pm25"), pm10: lv("pm10"), co2: lv("co2") };
+
+  // ----- AQI from 1-hour means (falls back to latest) -----
+  const p25 = recentMean("pm25", 60) ?? L.pm25, p10 = recentMean("pm10", 60) ?? L.pm10;
+  const s25 = subIndex(p25, BP.pm25), s10 = subIndex(p10, BP.pm10);
+  const subs = [s25, s10].filter(v => v != null);
+  const chip = document.getElementById("chip");
+  if (subs.length) {
+    const aqi = Math.round(Math.min(500, Math.max(...subs)));
+    const i = catIdx(aqi), cat = CATS[i];
+    const lo = i ? CATS[i - 1].hi : 0;
+    const f = Math.min(1, Math.max(0, (aqi - lo) / (cat.hi - lo)));
+    document.documentElement.style.setProperty("--cat", `var(${cat.c})`);
+    chip.style.color = cat.ink;
+    chip.textContent = cat.name;
+    document.getElementById("aqiNum").textContent = aqi;
+    document.getElementById("catTitle").textContent = `Air quality is ${cat.name.toLowerCase()}`;
+    document.getElementById("advice").textContent = cat.advice;
+    let act = cat.action;
+    if (L.co2 != null && L.co2 > 1000) act = `CO₂ is high (${Math.round(L.co2)} ppm), so open a window for fresh air. ` + act;
+    document.getElementById("action").textContent = act;
+    document.getElementById("gaugeSvg").setAttribute("aria-label", `AQI ${aqi}, ${cat.name}`);
+    setMarker(i, f);
+    const main = (s25 ?? -1) >= (s10 ?? -1) ? "PM2.5" : "PM10";
+    document.getElementById("subs").innerHTML =
+      `<span>Main pollutant <b>${main}</b></span>` +
+      (s25 != null ? `<span>PM2.5 index <b>${Math.round(s25)}</b></span>` : "") +
+      (s10 != null ? `<span>PM10 index <b>${Math.round(s10)}</b></span>` : "");
+  } else {
+    document.getElementById("aqiNum").textContent = "–";
+    chip.textContent = "No data";
+    document.getElementById("catTitle").textContent = "Waiting for PM readings";
+    document.getElementById("advice").textContent = "AQI needs PM2.5 or PM10 readings from the last hour.";
+    document.getElementById("action").textContent = "Check that the sensor is powered and connected.";
+  }
+
+  // ----- cards -----
+  METRICS.forEach(m => {
+    const card = document.getElementById("card-" + m.k), v = L[m.k];
+    card.querySelector("[data-v]").innerHTML = v == null ? "–" : `${v.toFixed(m.dp)}<small>${m.unit}</small>`;
+    let name = "", col = "";
+    if (v != null) {
+      if (m.k === "pm25" || m.k === "pm10") { const c = CATS[catIdx(subIndex(v, BP[m.k]))]; name = c.name; col = c.c; }
+      else if (m.k === "co2") { const c = CO2_LV.find(b => v <= b.hi); name = c.name; col = c.c; }
+      else if (m.k === "temp") name = v < 20 ? "Cool" : v <= 28 ? "Comfortable" : "Warm";
+      else name = v < 30 ? "Dry" : v <= 60 ? "Comfortable" : "Humid";
+    }
+    card.querySelector("[data-t]").innerHTML = name ? (col ? `<i style="--d:var(${col})"></i>${name}` : name) : "";
+    const s = sparks[m.k];
+    s.data.datasets[0].data = feeds.filter(r => r[m.k] != null).map(r => ({ x: r.t, y: r[m.k] }));
+    s.update("none");
+  });
+
+  drawChart();
+}
+
+// ===================== START =====================
+document.getElementById("place").textContent = `${PLACE_NAME} · live sensor`;
+document.getElementById("src").innerHTML =
+  `<a href="https://thingspeak.mathworks.com/channels/${CHANNEL_ID}" target="_blank" rel="noopener">Data: ThingSpeak channel ${CHANNEL_ID}</a>`;
+buildGauge(); buildCards(); buildChart();
+fetchData();
+setInterval(fetchData, REFRESH_MS);
+</script>
+</body>
+</html>
